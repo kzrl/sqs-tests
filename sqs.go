@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"sync"
+	"time"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-sdk-go/aws"
@@ -12,6 +14,8 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/aws/aws-sdk-go/service/sqs"
 )
+
+var wg sync.WaitGroup
 
 func main() {
 	fmt.Println("Yo")
@@ -24,6 +28,18 @@ func main() {
 	// URL to our queue
 	qURL := "https://us-west-2.queue.amazonaws.com/943240146135/mess"
 
+	numWorkers := 50
+
+	for i := 0; i < numWorkers; i++ {
+		wg.Add(1)
+		go GetMessage(i, sess, svc, qURL)
+	}
+	wg.Wait()
+
+}
+
+func GetMessage(num int, sess *session.Session, svc *sqs.SQS, qURL string) {
+	fmt.Printf("Worker #%d\n", num)
 	for {
 		result, err := svc.ReceiveMessage(&sqs.ReceiveMessageInput{
 			AttributeNames: []*string{
@@ -40,7 +56,7 @@ func main() {
 
 		if err != nil {
 			fmt.Println("Error", err)
-			return
+			continue
 		}
 		downloader := s3manager.NewDownloader(sess)
 
@@ -51,8 +67,9 @@ func main() {
 
 		// loop over the events in the SQS payload
 		for _, r := range result.Messages {
-			json.Unmarshal([]byte(aws.StringValue(r.Body)), &event)
 
+			// Get the S3 event Records
+			json.Unmarshal([]byte(aws.StringValue(r.Body)), &event)
 			for _, record := range event.Records {
 				fmt.Printf("s3://%s/%s\n", record.S3.Bucket.Name, record.S3.Object.Key)
 
@@ -73,7 +90,7 @@ func main() {
 
 		if len(result.Messages) == 0 {
 			fmt.Println("Received no messages")
-			return
+			continue
 		}
 
 		_, err = svc.DeleteMessage(&sqs.DeleteMessageInput{
@@ -83,14 +100,8 @@ func main() {
 
 		if err != nil {
 			fmt.Println("Delete Error", err)
-			return
+			continue
 		}
-
-		fmt.Println("Message Deleted")
 	}
-
-}
-
-func GetWebhook() {
-
+	time.Sleep(1 * time.Second)
 }

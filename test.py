@@ -14,7 +14,7 @@ client = boto3.client('s3')
 
 payloads = [b'{"hello": "world"}', b'{"moo": "wowow"}', b'{"woop": "mooop"}']
 
-for i in range(10):
+for i in range(1000):
     client.put_object(Body=random.choice(payloads), Bucket='kc-messtest', Key=str(uuid.uuid4()))
 
 
