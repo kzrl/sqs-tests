@@ -3,10 +3,13 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/aws/aws-sdk-go/service/sqs"
 )
 
@@ -39,14 +42,32 @@ func main() {
 			fmt.Println("Error", err)
 			return
 		}
+		downloader := s3manager.NewDownloader(sess)
+
+		buff := &aws.WriteAtBuffer{}
 
 		//https://github.com/aws/aws-lambda-go/blob/master/events/s3.go
+		var event events.S3Event
+
+		// loop over the events in the SQS payload
 		for _, r := range result.Messages {
-			var event events.S3Event
 			json.Unmarshal([]byte(aws.StringValue(r.Body)), &event)
 
 			for _, record := range event.Records {
 				fmt.Printf("s3://%s/%s\n", record.S3.Bucket.Name, record.S3.Object.Key)
+
+				// Download the file from S3 into buffer
+				numBytes, err := downloader.Download(buff,
+					&s3.GetObjectInput{
+						Bucket: aws.String(record.S3.Bucket.Name),
+						Key:    aws.String(record.S3.Object.Key),
+					})
+				if err != nil {
+					log.Fatalf("Unable to download item %q, %v", record.S3.Object.Key, err)
+				}
+				fmt.Println(numBytes)
+				fmt.Printf("%s\n", buff.Bytes())
+
 			}
 		}
 
@@ -55,7 +76,7 @@ func main() {
 			return
 		}
 
-		resultDelete, err := svc.DeleteMessage(&sqs.DeleteMessageInput{
+		_, err = svc.DeleteMessage(&sqs.DeleteMessageInput{
 			QueueUrl:      &qURL,
 			ReceiptHandle: result.Messages[0].ReceiptHandle,
 		})
@@ -65,7 +86,11 @@ func main() {
 			return
 		}
 
-		fmt.Println("Message Deleted", resultDelete)
+		fmt.Println("Message Deleted")
 	}
+
+}
+
+func GetWebhook() {
 
 }
